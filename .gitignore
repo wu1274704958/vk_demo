@@ -3,3 +3,4 @@
 /build/**
 /vulkan_asset_pack_gltf.zip
 data/models/*.gltf
+cmake-build-*-*/**
