@@ -27,4 +27,5 @@ find_package(Ktx CONFIG REQUIRED)
 
 add_subdirectory(base)
 add_subdirectory(examples/triangle)
+add_subdirectory(examples/indirect_draw)
 
