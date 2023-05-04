@@ -6,6 +6,7 @@
 #define INSTANCE_COUNT 1024
 #define VERTEX_BUFFER_BIND_ID 0
 #define INSTANCE_BUFFER_BIND_ID 1
+#define RADIUS 10.0f
 class VulkanExample : public VulkanExampleBase{
 public:
     VulkanExample() : VulkanExampleBase(true)
@@ -32,7 +33,7 @@ public:
         //clear pipeline layout
         vkDestroyPipelineLayout(device,pipelineLayout,nullptr);
         //clear descriptor pool
-        vkDestroyDescriptorPool(device,descriptorPool,nullptr);
+        vkDestroyDescriptorSetLayout(device,descriptorSetLayout, nullptr);
     }
     void getEnabledFeatures() override {
         // Example uses multi draw indirect if available
@@ -86,14 +87,17 @@ public:
         std::default_random_engine rndEngine(benchmark.active ? 0 : time(nullptr));
         std::uniform_real_distribution<float> dist(0.0f, 1.0f);
         int i = 0;
+        auto a = 0.0f;
+        float z = 1.0f / instanceData.size();
         for(auto& d : instanceData){
-            float theta = 2.0f * glm::pi<float>() * dist(rndEngine);//1~2pi
-            float phi = acos(1.f - 2.f * dist(rndEngine)); // acos(-1 ~ 1)
+            float theta = 2.0f * glm::pi<float>() * a;//1~2pi
+            float phi = acos(1.f - 2.f * a); // acos(-1 ~ 1)
             d.rot = glm::vec3(0.f, dist(rndEngine) * glm::pi<float>(), 0.f);
-            d.pos = glm::vec3 (glm::sin(phi) * glm::cos(theta),0.0f, glm::cos(phi)) * 25.f;
+            d.pos = glm::vec3 (2.0f,0.0f, 0.0f) * RADIUS;
             d.scale = 1.0f + dist(rndEngine) * 2.0f;
             d.texIndex = i / INSTANCE_COUNT;
             ++i;
+            a +=z;
         }
         vks::Buffer stagingBuffer;
         VK_CHECK_RESULT(vulkanDevice->createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
