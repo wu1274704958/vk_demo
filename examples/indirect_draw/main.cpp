@@ -3,10 +3,10 @@
 //
 #include "vulkanexamplebase.h"
 #include "VulkanglTFModel.h"
-#define INSTANCE_COUNT 1024
+#define INSTANCE_COUNT 2048
 #define VERTEX_BUFFER_BIND_ID 0
 #define INSTANCE_BUFFER_BIND_ID 1
-#define RADIUS 10.0f
+#define RADIUS 25.0f
 class VulkanExample : public VulkanExampleBase{
 public:
     VulkanExample() : VulkanExampleBase(true)
@@ -26,6 +26,8 @@ public:
         uniformData.scene.destroy();
         textures.ground.destroy();
         textures.plants.destroy();
+        if(pipelines.plantsWireframe != VK_NULL_HANDLE)
+            vkDestroyPipeline(device,pipelines.plantsWireframe,nullptr);
         //clear pipelines
         vkDestroyPipeline(device,pipelines.ground,nullptr);
         vkDestroyPipeline(device,pipelines.skysphere,nullptr);
@@ -44,6 +46,10 @@ public:
         if (deviceFeatures.samplerAnisotropy) {
             enabledFeatures.samplerAnisotropy = VK_TRUE;
         }
+        if(deviceFeatures.wideLines)
+            enabledFeatures.wideLines = VK_TRUE;
+        if(deviceFeatures.fillModeNonSolid)
+            enabledFeatures.fillModeNonSolid = VK_TRUE;
     }
 
     void loadAssets()
@@ -87,17 +93,14 @@ public:
         std::default_random_engine rndEngine(benchmark.active ? 0 : time(nullptr));
         std::uniform_real_distribution<float> dist(0.0f, 1.0f);
         int i = 0;
-        auto a = 0.0f;
-        float z = 1.0f / instanceData.size();
         for(auto& d : instanceData){
-            float theta = 2.0f * glm::pi<float>() * a;//1~2pi
-            float phi = acos(1.f - 2.f * a); // acos(-1 ~ 1)
+            float theta = 2.0f * glm::pi<float>() * dist(rndEngine);//1~2pi
+            float phi = acos(1.f - 2.f * dist(rndEngine)); // acos(-1 ~ 1)
             d.rot = glm::vec3(0.f, dist(rndEngine) * glm::pi<float>(), 0.f);
-            d.pos = glm::vec3 (2.0f,0.0f, 0.0f) * RADIUS;
+            d.pos = glm::vec3 (glm::sin(phi) * glm::cos(theta),0.0f, glm::cos(phi)) * RADIUS;
             d.scale = 1.0f + dist(rndEngine) * 2.0f;
             d.texIndex = i / INSTANCE_COUNT;
             ++i;
-            a +=z;
         }
         vks::Buffer stagingBuffer;
         VK_CHECK_RESULT(vulkanDevice->createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -188,7 +191,7 @@ public:
             vks::initializers::vertexInputBindingDescription(INSTANCE_BUFFER_BIND_ID,sizeof(InstanceData),VK_VERTEX_INPUT_RATE_INSTANCE)
         };
         VkPipelineVertexInputStateCreateInfo vertexInputStateCreateInfo = vks::initializers::pipelineVertexInputStateCreateInfo(vertexInputBindings,vertexInputAttributeDescriptions);
-        std::array<VkDynamicState,2> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};
+        std::array<VkDynamicState,3> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR,VK_DYNAMIC_STATE_LINE_WIDTH};
         VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo = vks::initializers::pipelineDynamicStateCreateInfo(dynamicStates.data(),dynamicStates.size());
         VkPipelineViewportStateCreateInfo viewportStateCreateInfo = vks::initializers::pipelineViewportStateCreateInfo(1,1);
         std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = {};
@@ -208,6 +211,13 @@ public:
         shaderStages[0] = loadShader(getShadersPath() + "indirectdraw/indirectdraw.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
         shaderStages[1] = loadShader(getShadersPath() + "indirectdraw/indirectdraw.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
         VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache,1,&pipelineCreateInfo,nullptr,&pipelines.plants));
+        if(enabledFeatures.fillModeNonSolid)
+        {
+            shaderStages[1] = loadShader(getShadersPath() + "indirectdraw/indirectdraw_white.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+            rasterizationStateCreateInfo.polygonMode = VK_POLYGON_MODE_LINE;
+            VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache,1,&pipelineCreateInfo,nullptr,&pipelines.plantsWireframe));
+            rasterizationStateCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
+        }
         vertexInputStateCreateInfo.vertexBindingDescriptionCount = 1;
         vertexInputStateCreateInfo.vertexAttributeDescriptionCount = 4;
         // pipeline for ground
@@ -252,10 +262,14 @@ public:
             vkCmdBindPipeline(drawCmdBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,pipelines.skysphere);
             models.skysphere.draw(drawCmdBuffers[i]);
 
-            vkCmdBindPipeline(drawCmdBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,pipelines.ground);
+            if(!wireframe)vkCmdBindPipeline(drawCmdBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,pipelines.ground);
             models.ground.draw(drawCmdBuffers[i]);
-
-            vkCmdBindPipeline(drawCmdBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,pipelines.plants);
+            if(pipelines.plantsWireframe != VK_NULL_HANDLE)
+                vkCmdBindPipeline(drawCmdBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,wireframe ? pipelines.plantsWireframe : pipelines.plants);
+            else
+                vkCmdBindPipeline(drawCmdBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,pipelines.plants);
+            if(wireframe)
+                vkCmdSetLineWidth(drawCmdBuffers[i],lineWidth);
             vkCmdBindVertexBuffers(drawCmdBuffers[i],VERTEX_BUFFER_BIND_ID,1,&models.plants.vertices.buffer,&offset);
             vkCmdBindVertexBuffers(drawCmdBuffers[i],INSTANCE_BUFFER_BIND_ID,1,&instanceDataBuffer.buffer,&offset);
             vkCmdBindIndexBuffer(drawCmdBuffers[i],models.plants.indices.buffer,0,VK_INDEX_TYPE_UINT32);
@@ -308,7 +322,26 @@ public:
         }
         if (overlay->header("Statistics")) {
             overlay->text("Objects: %d", indirectDrawCommands.size() * INSTANCE_COUNT);
+            if(enabledFeatures.fillModeNonSolid)
+            {
+                auto old = wireframe;
+                if(overlay->checkBox("Wireframe",&wireframe))
+                {
+                    if(old != wireframe)
+                        buildCommandBuffers();
+                }
+            }
+            if(enabledFeatures.wideLines)
+            {
+                auto old = lineWidth;
+                if(overlay->sliderFloat("LineWidth",&lineWidth,1.0f,8.0f))
+                {
+                    if(glm::abs( old - lineWidth) > 0.01f)
+                        buildCommandBuffers();
+                }
+            }
         }
+
     }
 
 
@@ -337,7 +370,7 @@ private:
         vks::Buffer scene;
     } uniformData;
     struct {
-        VkPipeline plants;
+        VkPipeline plants,plantsWireframe = VK_NULL_HANDLE;
         VkPipeline ground;
         VkPipeline skysphere;
     } pipelines;
@@ -347,6 +380,8 @@ private:
     VkDescriptorSetLayout descriptorSetLayout;
     VkPipelineLayout pipelineLayout;
     VkDescriptorSet descriptorSet;
+    bool wireframe = false;
+    float lineWidth = 1.0f;
 };
 
 VULKAN_EXAMPLE_MAIN()
