@@ -1,7 +1,7 @@
 /*
 * Vulkan Example base class
 *
-* Copyright (C) by Sascha Willems - www.saschawillems.de
+* Copyright (C) 2016-2023 by Sascha Willems - www.saschawillems.de
 *
 * This code is licensed under the MIT license (MIT) (http://opensource.org/licenses/MIT)
 */
@@ -105,13 +105,13 @@ VkResult VulkanExampleBase::createInstance(bool enableValidation)
 	}
 #endif
 
+	// Enable the debug utils extension if available (e.g. when debugging tools are present)
+	if (settings.validation || std::find(supportedInstanceExtensions.begin(), supportedInstanceExtensions.end(), VK_EXT_DEBUG_UTILS_EXTENSION_NAME) != supportedInstanceExtensions.end()) {
+		instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+	}
+
 	if (instanceExtensions.size() > 0)
 	{
-		if (settings.validation)
-		{
-			instanceExtensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);	// SRS - Dependency when VK_EXT_DEBUG_MARKER is enabled
-			instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-		}
 		instanceCreateInfo.enabledExtensionCount = (uint32_t)instanceExtensions.size();
 		instanceCreateInfo.ppEnabledExtensionNames = instanceExtensions.data();
 	}
@@ -140,7 +140,14 @@ VkResult VulkanExampleBase::createInstance(bool enableValidation)
 			std::cerr << "Validation layer VK_LAYER_KHRONOS_validation not present, validation is disabled";
 		}
 	}
-	return vkCreateInstance(&instanceCreateInfo, nullptr, &instance);
+	VkResult result = vkCreateInstance(&instanceCreateInfo, nullptr, &instance);
+
+	// If the debug utils extension is present we set up debug functions, so samples an label objects for debugging
+	if (std::find(supportedInstanceExtensions.begin(), supportedInstanceExtensions.end(), VK_EXT_DEBUG_UTILS_EXTENSION_NAME) != supportedInstanceExtensions.end()) {
+		vks::debugutils::setup(instance);
+	}
+
+	return result;
 }
 
 void VulkanExampleBase::renderFrame()
@@ -184,7 +191,7 @@ void VulkanExampleBase::destroyCommandBuffers()
 
 std::string VulkanExampleBase::getShadersPath() const
 {
-	return getAssetPath() + "shaders/" + shaderDir + "/";
+	return getShaderBasePath() + shaderDir + "/";
 }
 
 void VulkanExampleBase::createPipelineCache()
@@ -196,9 +203,6 @@ void VulkanExampleBase::createPipelineCache()
 
 void VulkanExampleBase::prepare()
 {
-	if (vulkanDevice->enableDebugMarkers) {
-		vks::debugmarker::setup(device);
-	}
 	initSwapchain();
 	createCommandPool();
 	setupSwapChain();
@@ -295,6 +299,16 @@ void VulkanExampleBase::renderLoop()
 //     - for macOS, handle benchmarking within NSApp rendering loop via displayLinkOutputCb()
 #if !(defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK))
 	if (benchmark.active) {
+#if defined(VK_USE_PLATFORM_WAYLAND_KHR)
+		while (!configured)
+			wl_display_dispatch(display);
+		while (wl_display_prepare_read(display) != 0)
+			wl_display_dispatch_pending(display);
+		wl_display_flush(display);
+		wl_display_read_events(display);
+		wl_display_dispatch_pending(display);
+#endif
+
 		benchmark.run([=] { render(); }, vulkanDevice->properties);
 		vkDeviceWaitIdle(device);
 		if (benchmark.filename != "") {
@@ -807,7 +821,7 @@ VulkanExampleBase::VulkanExampleBase(bool enableValidation)
 		settings.vsync = true;
 	}
 	if (commandLineParser.isSet("height")) {
-		height = commandLineParser.getValueAsInt("height", width);
+		height = commandLineParser.getValueAsInt("height", height);
 	}
 	if (commandLineParser.isSet("width")) {
 		width = commandLineParser.getValueAsInt("width", width);
@@ -1043,9 +1057,15 @@ bool VulkanExampleBase::initVulkan()
 	// Get a graphics queue from the device
 	vkGetDeviceQueue(device, vulkanDevice->queueFamilyIndices.graphics, 0, &queue);
 
-	// Find a suitable depth format
-	VkBool32 validDepthFormat = vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
-	assert(validDepthFormat);
+	// Find a suitable depth and/or stencil format
+	VkBool32 validFormat{ false };
+	// Sample that make use of stencil will require a depth + stencil format, so we select from a different list
+	if (requiresStencil) {
+		validFormat = vks::tools::getSupportedDepthStencilFormat(physicalDevice, &depthFormat);
+	} else {
+		validFormat = vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
+	}
+	assert(validFormat);
 
 	swapChain.connect(instance, physicalDevice, device);
 
@@ -1597,8 +1617,10 @@ dispatch_group_t concurrentGroup;
 @end
 
 const std::string getAssetPath() {
-    return [NSBundle.mainBundle.resourcePath stringByAppendingString: @"/../../data/"].UTF8String;
+    return [NSBundle.mainBundle.resourcePath stringByAppendingString: @"/../../assets/"].UTF8String;
 }
+
+const std::string getShaderBasePath() { return [NSBundle.mainBundle.resourcePath stringByAppendingString: @"/../../shaders/"].UTF8String; }
 
 static CVReturn displayLinkOutputCallback(CVDisplayLinkRef displayLink, const CVTimeStamp *inNow,
 	const CVTimeStamp *inOutputTime, CVOptionFlags flagsIn, CVOptionFlags *flagsOut,

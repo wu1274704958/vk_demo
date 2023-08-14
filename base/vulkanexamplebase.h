@@ -1,7 +1,7 @@
 /*
 * Vulkan Example base class
 *
-* Copyright (C) by Sascha Willems - www.saschawillems.de
+* Copyright (C) 2016-2023 by Sascha Willems - www.saschawillems.de
 *
 * This code is licensed under the MIT license (MIT) (http://opensource.org/licenses/MIT)
 */
@@ -80,7 +80,6 @@ private:
 	uint32_t destWidth;
 	uint32_t destHeight;
 	bool resizing = false;
-	void windowResize();
 	void handleMouseMove(int32_t x, int32_t y);
 	void nextFrame();
 	void updateOverlay();
@@ -154,6 +153,7 @@ protected:
 		VkSemaphore renderComplete;
 	} semaphores;
 	std::vector<VkFence> waitFences;
+	bool requiresStencil{ false };
 public:
 	bool prepared = false;
 	bool resized = false;
@@ -375,6 +375,8 @@ public:
 
 	/** @brief Loads a SPIR-V shader file for the given shader stage */
 	VkPipelineShaderStageCreateInfo loadShader(std::string fileName, VkShaderStageFlagBits stage);
+
+	void windowResize();
 
 	/** @brief Entry point for the main render loop */
 	void renderLoop();
