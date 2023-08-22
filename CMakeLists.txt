@@ -30,4 +30,5 @@ add_subdirectory(base)
 add_subdirectory(examples/triangle)
 add_subdirectory(examples/indirect_draw)
 add_subdirectory(examples/geometry_shader)
+add_subdirectory(examples/normal_texture)
 
