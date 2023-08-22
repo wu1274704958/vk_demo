@@ -14,8 +14,8 @@ public:
         title = "Geometry Shader";
         camera.type = Camera::CameraType::lookat;
         camera.setPerspective(60.f,(float )width / (float) height,0.01,1024.0f);
-        camera.setRotation(glm::vec3(0.0f, 0.0f, 0.0f));
-        camera.setTranslation(glm::vec3(0.0f, 0.0f, -1.0f));
+        camera.setRotation(glm::vec3(-90.0f, 0.0f, 0.0f));
+        camera.setTranslation(glm::vec3(0.0f, 0.0f, -5.0f));
         camera.movementSpeed = 5.0f;
     }
     ~VulkanExample()
