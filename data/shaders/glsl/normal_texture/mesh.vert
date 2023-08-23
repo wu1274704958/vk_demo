@@ -32,5 +32,5 @@ void main()
 	outLightVec = lightPos.xyz - pos.xyz;
 	outViewVec = -pos.xyz;
 	outUV = inUV;
-	outTangent = inTangent;
+	outTangent = mat3(ubo.model) * inTangent;
 }
