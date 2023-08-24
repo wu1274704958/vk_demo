@@ -8,14 +8,21 @@
 #define INSTANCE_BUFFER_BIND_ID 1
 #define RADIUS 25.0f
 class VulkanExample : public VulkanExampleBase{
-public:
+	struct MappingArgs
+	{
+		int mappingMode = 0;
+		float heightScale = 0.1f;
+		float numLayers = 48.0f;
+		float bias = -0.02f;
+	} mappingArgs;
+ public:
     VulkanExample() : VulkanExampleBase(true)
     {
-        title = "Geometry Shader";
-        camera.type = Camera::CameraType::lookat;
+        title = "Parallax Mapping";
+        camera.type = Camera::CameraType::firstperson;
         camera.setPerspective(60.f,(float )width / (float) height,0.01,1024.0f);
-        camera.setRotation(glm::vec3(-90.0f, 0.0f, 0.0f));
-        camera.setTranslation(glm::vec3(0.0f, 0.0f, -5.0f));
+		camera.setPosition(glm::vec3(0.0f, 1.25f, -1.5f));
+		camera.setRotation(glm::vec3(-45.0f, 0.0f, 0.0f));
         camera.movementSpeed = 5.0f;
     }
     ~VulkanExample()
@@ -23,8 +30,9 @@ public:
 		textures.diffuse_map.destroy();
 		textures.normal_map.destroy();
 		uniformData.scene.destroy();
+		uniformData.mapping_args.destroy();
         //clear buffers
-		vkDestroyPipeline(device,pipelines.normal_map, nullptr);
+		vkDestroyPipeline(device,pipelines.parallax_mapping, nullptr);
 		vkDestroyPipeline(device,pipelines.wireframe, nullptr);
         //clear pipeline layout
         vkDestroyPipelineLayout(device,pipelineLayout,nullptr);
@@ -46,17 +54,24 @@ public:
     void loadAssets()
     {
 		scene.model.loadFromFile(getAssetPath() + "models/plane.gltf", vulkanDevice, queue,vkglTF::FileLoadingFlags::FlipY | vkglTF::FileLoadingFlags::PreTransformVertices | vkglTF::FileLoadingFlags::PreMultiplyVertexColors);
-    	textures.normal_map.loadFromFile(getAssetPath() + "textures/stonefloor01_normal_rgba.ktx",VK_FORMAT_R8G8B8A8_UNORM,vulkanDevice,queue);
-		textures.diffuse_map.loadFromFile(getAssetPath() + "textures/stonefloor01_color_rgba.ktx",VK_FORMAT_R8G8B8A8_UNORM,vulkanDevice,queue);
+    	textures.normal_map.loadFromFile(getAssetPath() + "textures/rocks_normal_height_rgba.ktx",VK_FORMAT_R8G8B8A8_UNORM,vulkanDevice,queue);
+		textures.diffuse_map.loadFromFile(getAssetPath() + "textures/rocks_color_rgba.ktx",VK_FORMAT_R8G8B8A8_UNORM,vulkanDevice,queue);
 	}
 
-    void updateUniformBuffer(bool viewChanged) {
+	void updateMappingArgsUniformBuffer()
+	{
+		memcpy(uniformData.mapping_args.mapped,&mappingArgs,sizeof(mappingArgs));
+	}
+	void updateUniformBuffer(bool viewChanged) {
         if(viewChanged)
         {
             uboVP.projection = camera.matrices.perspective;
             uboVP.view = camera.matrices.view;
+			uboVP.viewPos = glm::vec4 (camera.position * -1.0f,1.0f);
         }
         memcpy(uniformData.scene.mapped,&uboVP,sizeof(uboVP));
+
+		updateMappingArgsUniformBuffer();
     }
 
     void prepareUniformBuffers()
@@ -65,13 +80,18 @@ public:
                                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
                                                    &uniformData.scene,sizeof(uboVP)));
         VK_CHECK_RESULT(uniformData.scene.map());
+		//create mapping args buffer
+		VK_CHECK_RESULT(vulkanDevice->createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+												   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+												   &uniformData.mapping_args,sizeof(mappingArgs)));
+		VK_CHECK_RESULT(uniformData.mapping_args.map());
         updateUniformBuffer(true);
     }
 
     void setupDescriptorPool()
     {
         std::array<VkDescriptorPoolSize, 2> poolSizes = {
-            VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
+            VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2},
 			VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2},
         };
         VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes.size(), poolSizes.data(), 1);
@@ -79,10 +99,11 @@ public:
     }
 
     void setupDescriptorSetLayouts() {
-        std::array<VkDescriptorSetLayoutBinding, 3> bindings = {
+        std::array<VkDescriptorSetLayoutBinding, 4> bindings = {
             vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
 			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
 			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
+			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 3),
         };
         VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo = vks::initializers::descriptorSetLayoutCreateInfo(bindings.data(), bindings.size());
         VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutInfo, nullptr, &descriptorSetLayout));
@@ -96,10 +117,11 @@ public:
         VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayout, 1);
         VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
 
-        std::array<VkWriteDescriptorSet, 3> descriptorWrites = {
+        std::array<VkWriteDescriptorSet, 4> descriptorWrites = {
             vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformData.scene.descriptor),
 			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, &textures.normal_map.descriptor),
 			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, &textures.diffuse_map.descriptor),
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3, &uniformData.mapping_args.descriptor),
         };
 
         vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
@@ -131,17 +153,17 @@ public:
         pipelineCreateInfo.pStages = shaderStages.data();
         pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
         // pipeline for indirect(and instance) draw
-        shaderStages[0] = loadShader(getShadersPath() + "normal_texture/base.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-        shaderStages[1] = loadShader(getShadersPath() + "normal_texture/base.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+        shaderStages[0] = loadShader(getShadersPath() + "parallax_mapping/base.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+        shaderStages[1] = loadShader(getShadersPath() + "parallax_mapping/base.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 
         VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache,1,&pipelineCreateInfo,nullptr,&pipelines.wireframe));
-		shaderStages[0] = loadShader(getShadersPath() + "normal_texture/mesh.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-		shaderStages[1] = loadShader(getShadersPath() + "normal_texture/mesh.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+		shaderStages[0] = loadShader(getShadersPath() + "parallax_mapping/mesh.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+		shaderStages[1] = loadShader(getShadersPath() + "parallax_mapping/mesh.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 		rasterizationStateCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
 		rasterizationStateCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
         // pipeline for parallax_mapping
-        VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache,1,&pipelineCreateInfo,nullptr,&pipelines.normal_map));
+        VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache,1,&pipelineCreateInfo,nullptr,&pipelines.parallax_mapping));
     }
 
     void buildCommandBuffers() override {
@@ -180,7 +202,7 @@ public:
 
 			vkCmdBindVertexBuffers(drawCmdBuffers[i], VERTEX_BUFFER_BIND_ID, 1, &scene.model.vertices.buffer, &offset);
 			vkCmdBindIndexBuffer(drawCmdBuffers[i], scene.model.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.normal_map);
+			vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.parallax_mapping);
 			scene.model.draw(drawCmdBuffers[i]);
 			if (wireframe)
 			{
@@ -233,8 +255,21 @@ public:
 						buildCommandBuffers();
 				}
 			}
+			auto oldMappingMode = mappingArgs.mappingMode;
+			if(overlay->comboBox("Mapping Mode",&mappingArgs.mappingMode,MappingModes))
+			{
+				if(mappingArgs.mappingMode != oldMappingMode)
+					updateMappingArgsUniformBuffer();
+			}
         }
     }
+
+	const std::vector<std::string> MappingModes = {
+		"None",
+		"Parallax Mapping",
+		"Step Parallax Mapping",
+		"Parallax Occlusion Mapping",
+	};
 
 
 private:
@@ -243,12 +278,16 @@ private:
     struct {
         glm::mat4 projection;
         glm::mat4 view;
+		glm::mat4 model = glm::mat4(1.0f);
+		glm::vec4 viewPos ;
+		glm::vec4 lightPos = glm::vec4(0.0f, -2.0f, 0.0f,1.0f);
     } uboVP;
     struct {
         vks::Buffer scene;
+		vks::Buffer mapping_args;
     } uniformData;
     struct {
-        VkPipeline normal_map;
+        VkPipeline parallax_mapping;
         VkPipeline wireframe;
     } pipelines;
 	struct {
