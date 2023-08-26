@@ -16,7 +16,9 @@ layout (binding = 3) uniform MappingArgs
 	int mappingMode;
 	float heightScale;
 	float numLayers;
+	float minNumLayers;
 	float bias;
+	int option;
 } mappingArgs;
 
 
@@ -29,16 +31,18 @@ vec2 parallax_mapping(vec3 v)
 
 vec2 step_parallax_mapping(vec3 v)
 {
-	float depthDelta = 1.0f / mappingArgs.numLayers;
-	vec2 uvDelta = v.xy * mappingArgs.heightScale / ( v.z * mappingArgs.numLayers);
+	float layers =  mappingArgs.option == 1 ? mix(mappingArgs.minNumLayers,mappingArgs.numLayers,1.0 -abs(dot(vec3(0,0,1),v))) : mappingArgs.numLayers;
+	float depthDelta = 1.0f / layers;
+	vec2 uvDelta = v.xy * mappingArgs.heightScale / ( v.z * layers);
 	float currLayerDepth = 0;
 	vec2 currUV = inUV;
-	for(int i = 0;i < mappingArgs.numLayers;++i)
+	float currHeight = 0.0f;
+	for(int i = 0;i < layers;++i)
 	{
 		currUV -= uvDelta;
 		currLayerDepth += depthDelta;
-		float h = 1.0f - textureLod(hight_map, currUV, 0.0f).a;
-		if(h < currLayerDepth)
+		currHeight = 1.0f - textureLod(hight_map, currUV, 0.0f).a;
+		if(currHeight < currLayerDepth)
 		{
 			break;
 		}
@@ -48,12 +52,13 @@ vec2 step_parallax_mapping(vec3 v)
 
 vec2 parallax_occlusion_mapping(vec3 v)
 {
-	float depthDelta = 1.0f / mappingArgs.numLayers;
-	vec2 uvDelta = v.xy * mappingArgs.heightScale / ( v.z * mappingArgs.numLayers);
+	float layers =  mappingArgs.option == 1 ? mix(mappingArgs.minNumLayers,mappingArgs.numLayers,1.0 -abs(dot(vec3(0,0,1),v))) : mappingArgs.numLayers;
+	float depthDelta = 1.0f / layers;
+	vec2 uvDelta = v.xy * mappingArgs.heightScale / ( v.z * layers);
 	float currLayerDepth = 0;
 	vec2 currUV = inUV;
 	float currHeight = 0.0f;
-	for(int i = 0;i < mappingArgs.numLayers;++i)
+	for(int i = 0;i < layers;++i)
 	{
 		currUV -= uvDelta;
 		currLayerDepth += depthDelta;
@@ -67,7 +72,7 @@ vec2 parallax_occlusion_mapping(vec3 v)
 	float nextDepth = currHeight - currLayerDepth;
 	float prevDepth = (1.0f - textureLod(hight_map, currUV, 0.0f).a) - (currLayerDepth - depthDelta);
 	float weight = nextDepth / (nextDepth - prevDepth);
-	return mix(currUV,prevUV,weight);
+	return prevUV * weight + currUV * (1.0f - weight);
 }
 
 void main()
@@ -101,5 +106,5 @@ void main()
 	vec3 ambient = 0.1 * color;
 	vec3 diffuse = max(dot(N, L), 0.0) * color;
 	vec3 specular = pow(max(dot(R, V), 0.0), 16.0) * vec3(0.75);
-	outFragColor = vec4((ambient + diffuse) * inColor.rgb + specular, 1.0);
+	outFragColor = vec4(ambient + diffuse + specular, 1.0);
 }

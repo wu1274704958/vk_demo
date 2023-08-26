@@ -7,7 +7,10 @@ layout (location = 2) in vec3 inColor;
 layout (set = 0, binding = 0) uniform UBO
 {
 	mat4 projection;
+	mat4 view;
 	mat4 model;
+	vec4 viewPos;
+	vec4 lightPos;
 } ubo;
 
 layout (location = 0) out vec3 outNormal;
@@ -19,7 +22,7 @@ void main()
 {
 	outNormal = inNormal;
 	outColor = inColor;
-	gl_Position = ubo.projection * ubo.model * vec4(inPos, 1.0);
+	gl_Position = ubo.projection * ubo.view * ubo.model * vec4(inPos, 1.0);
 
 	vec4 pos = ubo.model * vec4(inPos, 1.0);
 	outNormal = mat3(ubo.model) * inNormal;

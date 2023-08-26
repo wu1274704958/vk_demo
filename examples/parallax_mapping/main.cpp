@@ -10,10 +10,12 @@
 class VulkanExample : public VulkanExampleBase{
 	struct MappingArgs
 	{
-		int mappingMode = 0;
+		int mappingMode = 3;
 		float heightScale = 0.1f;
 		float numLayers = 48.0f;
+		float minNumLayers = 36.0f;
 		float bias = -0.02f;
+		int option = 1;
 	} mappingArgs;
  public:
     VulkanExample() : VulkanExampleBase(true)
@@ -60,6 +62,7 @@ class VulkanExample : public VulkanExampleBase{
 
 	void updateMappingArgsUniformBuffer()
 	{
+		mappingArgs.option = optimize ? 1 : 0;
 		memcpy(uniformData.mapping_args.mapped,&mappingArgs,sizeof(mappingArgs));
 	}
 	void updateUniformBuffer(bool viewChanged) {
@@ -261,6 +264,10 @@ class VulkanExample : public VulkanExampleBase{
 				if(mappingArgs.mappingMode != oldMappingMode)
 					updateMappingArgsUniformBuffer();
 			}
+			bool oldOptimize = optimize;
+			overlay->checkBox("Optimize", &optimize);
+			if(oldOptimize != optimize)
+				updateMappingArgsUniformBuffer();
         }
     }
 
@@ -278,7 +285,7 @@ private:
     struct {
         glm::mat4 projection;
         glm::mat4 view;
-		glm::mat4 model = glm::mat4(1.0f);
+		glm::mat4 model = glm::scale( glm::mat4(1.0f),glm::vec3(0.2f));
 		glm::vec4 viewPos ;
 		glm::vec4 lightPos = glm::vec4(0.0f, -2.0f, 0.0f,1.0f);
     } uboVP;
@@ -301,6 +308,7 @@ private:
     VkPipelineLayout pipelineLayout;
     VkDescriptorSet descriptorSet;
     float lineWidth = 1.0f;
+	bool optimize = true;
 };
 
 VULKAN_EXAMPLE_MAIN()

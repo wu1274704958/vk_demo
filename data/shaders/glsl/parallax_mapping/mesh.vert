@@ -29,8 +29,8 @@ void main()
 	gl_Position = ubo.projection * ubo.view * ubo.model * vec4(inPos, 1.0);
 
 	vec4 pos = ubo.model * vec4(inPos, 1.0);
-	outNormal = mat3(ubo.model) * inNormal;
-	vec3 T = mat3(ubo.model) * inTangent;
+	outNormal = normalize(mat3(ubo.model) * inNormal);
+	vec3 T = normalize(mat3(ubo.model) * inTangent);
 	vec3 B = normalize(cross(outNormal,T));
 	mat3 TBN = transpose(mat3(T,B,outNormal));
 
