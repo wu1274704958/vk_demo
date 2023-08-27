@@ -70,7 +70,7 @@ vec2 parallax_occlusion_mapping(vec3 v)
 	}
 	vec2 prevUV = currUV + uvDelta;
 	float nextDepth = currHeight - currLayerDepth;
-	float prevDepth = (1.0f - textureLod(hight_map, currUV, 0.0f).a) - (currLayerDepth - depthDelta);
+	float prevDepth = (1.0f - textureLod(hight_map, prevUV, 0.0f).a) - (currLayerDepth - depthDelta);
 	float weight = nextDepth / (nextDepth - prevDepth);
 	return prevUV * weight + currUV * (1.0f - weight);
 }
