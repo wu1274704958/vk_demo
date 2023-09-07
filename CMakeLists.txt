@@ -32,4 +32,4 @@ add_subdirectory(examples/indirect_draw)
 add_subdirectory(examples/geometry_shader)
 add_subdirectory(examples/normal_texture)
 add_subdirectory(examples/parallax_mapping)
-
+add_subdirectory(examples/shadow_map_direct)
