@@ -21,7 +21,7 @@ float textureProj(vec4 shadowCoord, vec2 off)
     float dist = texture( shadowMap, shadowCoord.st + off ).r;
     vec3 N = normalize(inNormal);
     vec3 L = normalize(inLightPos);
-    if (shadowCoord.x >= 0 && shadowCoord.x <= 1.0 && shadowCoord.y >= 0 && shadowCoord.y <= 1.0)
+    if (shadowCoord.x >= 0 && shadowCoord.x <= 1.0 && shadowCoord.y >= 0 && shadowCoord.y <= 1.0 && shadowCoord.z > -1.0 && shadowCoord.z < 1.0)
     {
         float bias =  (1.0f - max(dot(N, L),0.0f)) * MaxBias;
         if (shadowCoord.w > 0.0 && dist < shadowCoord.z - bias)
