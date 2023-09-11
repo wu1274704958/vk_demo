@@ -28,8 +28,8 @@ class VulkanExample : public VulkanExampleBase{
 		title = "Shadow Mapping Spot Light";
 		camera.type = Camera::CameraType::firstperson;
 		camera.setPerspective(60.f,(float )width / (float) height,0.01,1024.0f);
-		camera.setPosition(glm::vec3(0.0f, 1.25f, -1.5f));
-		camera.setRotation(glm::vec3(-45.0f, 0.0f, 0.0f));
+		camera.setPosition(glm::vec3(0.6702f, 12.356249f, -23.246f));
+		camera.setRotation(glm::vec3(-20.0f, 0.0f, 0.0f));
 		camera.movementSpeed = 50.0f;
 
 		sceneData.plane = glm::translate(sceneData.cube, glm::vec3(0.0f, 2.0f, 0.0f));
