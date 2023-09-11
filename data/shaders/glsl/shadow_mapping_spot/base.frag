@@ -62,7 +62,8 @@ vec2 calcSpotLight()
     float theta = acos(dot(L_dir, FL_dir));
     if(theta > spotLight.phi)
         return vec2(0.0f);
-    return vec2(1.0f);
+    float strength = theta > spotLight.theta ? 1.0 - smoothstep(spotLight.theta, spotLight.phi, theta)  : 1.0f;
+    return vec2(1.0f, strength);
 }
 
 void main()
@@ -79,8 +80,9 @@ void main()
 
     vec3 diffuse = inColor * max(0.0f,dot(L, N)) * 0.5f;
     vec3 specular = pow(max(dot(R, V), 0.0), 64.0) * vec3(0.2f) * inColor;
-    vec3 c = vec3(ambient) + (diffuse + specular) * shadow * sp.x;
+    vec3 c = vec3(ambient) + (diffuse + specular) * shadow * sp.y;
     outColor = vec4( c ,1.0f);
     //outColor = vec4(inLightSpacePos.xy / inLightSpacePos.w,0.0f,1.0f);
     //outColor = vec4(texture(shadowMap,(inLightSpacePos.xy / inLightSpacePos.w)).rrr,1.0f);
+    //outColor = vec4(texture(shadowMap,inUV).rrr,1.0f);
 }

@@ -19,8 +19,8 @@ class VulkanExample : public VulkanExampleBase{
  public:
 	struct SpotLightData {
 		glm::vec3 direct;
-		float phi = glm::radians(45.0f);
-		float theta = glm::radians(20.0f);
+		float phi = glm::radians(12.0f);
+		float theta = glm::radians(10.0f);
 	};
 	VulkanExample() : VulkanExampleBase(true)
 	{
@@ -85,17 +85,25 @@ class VulkanExample : public VulkanExampleBase{
 		uboVP.lightPos.z = 25.0f + sin(glm::radians(timer * 360.0f )) * 5.0f ;
 	}
 
+	float CalcPerspectiveFov()
+	{
+//		float halfSideLen = glm::sin(spotLight.data.phi) * 1;
+//		float hypotenuseLen = glm::sqrt(glm::pow(halfSideLen,2.0f) + glm::pow(halfSideLen,2.0f));
+//		float angle = glm::asin(hypotenuseLen / 1.0f) * 2.0f;
+		return spotLight.data.phi * 2.0f;
+	}
+
 	void updateDepthUniformBuffer(bool changed)
 	{
 
-		glm::mat4 ortho = glm::ortho( -1.f * ORTHO_SIZE, 1.f * ORTHO_SIZE, 1.f * ORTHO_SIZE, -1.f * ORTHO_SIZE, 1.f, 120.0f);
+		glm::mat4 perspective = glm::perspective(CalcPerspectiveFov() ,1.0f, 20.f, 220.0f);
 		glm::mat4 view = glm::lookAt(glm::vec3(uboVP.lightPos), glm::vec3(0.0f,0.0f,0.0f), glm::vec3(1.0f, 0.0f, 0.0f));
 
-		uboDepth.mat1 = ortho * view * sceneData.plane;
-		uboDepth.mat2 = ortho * view * sceneData.cube;
+		uboDepth.mat1 = perspective * view * sceneData.plane;
+		uboDepth.mat2 = perspective * view * sceneData.cube;
 		memcpy(uniformData.depth.mapped,&uboDepth,sizeof(uboDepth));
 
-		uboVP.lightSpace = ortho * view;
+		uboVP.lightSpace = perspective * view;
 	}
 	void updateUniformBuffer(bool viewChanged) {
 		updateLight();
@@ -182,13 +190,14 @@ class VulkanExample : public VulkanExampleBase{
 		std::array<VkWriteDescriptorSet, 3> descriptorWrites = {
 			vks::initializers::writeDescriptorSet(descriptorSets.plane, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformData.plane.descriptor),
 			vks::initializers::writeDescriptorSet(descriptorSets.plane, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, &depth_pass.descriptor),
-			vks::initializers::writeDescriptorSet(descriptorSets.cube, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2, &spotLight.buffer.descriptor),
+			vks::initializers::writeDescriptorSet(descriptorSets.plane, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2, &spotLight.buffer.descriptor),
 		};
 
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
 		descriptorWrites[0].dstSet = descriptorSets.cube;
 		descriptorWrites[0].pBufferInfo = &uniformData.cube.descriptor;
 		descriptorWrites[1].dstSet = descriptorSets.cube;
+		descriptorWrites[2].dstSet = descriptorSets.cube;
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
 		// mat1 plane mat2 cube
 		VkDescriptorBufferInfo depthDescriptorBufferInfo = { .buffer = uniformData.depth.buffer, .offset = 0, .range = sizeof(glm::mat4) };
