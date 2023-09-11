@@ -15,6 +15,7 @@ layout (set = 0, binding = 2) uniform SpotLightData {
     vec3 direct;
     float phi;
     float theta;
+    float range;
 } spotLight;
 
 const float MaxBias = 0.001f;
@@ -42,7 +43,7 @@ float filterPCF(vec4 shadowCoord)
     vec2 size = textureSize(shadowMap, 0);
     vec2 delat = 1.0f / size;
     float shadowFactor = 0.0f;
-    int range = 2;
+    int range = 1;
     for(int y = -range; y <= range; y++)
     {
         for(int x = -range; x <= range; x++)
@@ -60,10 +61,11 @@ vec2 calcSpotLight()
     vec3 FL_dir = normalize(inFragPos - inLightPos);
     vec3 L_dir = normalize(spotLight.direct);
     float theta = acos(dot(L_dir, FL_dir));
+    float strengthForRange = max(0.0f,1.0 - pow(dist / spotLight.range,2.0f));
     if(theta > spotLight.phi)
         return vec2(0.0f);
     float strength = theta > spotLight.theta ? 1.0 - smoothstep(spotLight.theta, spotLight.phi, theta)  : 1.0f;
-    return vec2(1.0f, strength);
+    return vec2(1.0f,  strengthForRange * strength);
 }
 
 void main()

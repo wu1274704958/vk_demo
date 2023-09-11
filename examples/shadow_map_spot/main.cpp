@@ -19,8 +19,9 @@ class VulkanExample : public VulkanExampleBase{
  public:
 	struct SpotLightData {
 		glm::vec3 direct;
-		float phi = glm::radians(12.0f);
+		float phi = glm::radians(18.0f);
 		float theta = glm::radians(10.0f);
+		float range = 150.0f;
 	};
 	VulkanExample() : VulkanExampleBase(true)
 	{
