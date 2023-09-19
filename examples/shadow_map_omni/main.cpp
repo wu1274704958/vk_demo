@@ -94,9 +94,8 @@ class VulkanExample : public VulkanExampleBase{
 	void updateLight()
 	{
 		// Animate the light source
-//		uboVP.lightPos.x = cos(glm::radians(timer * 360.0f)) * 40.0f;
-//		uboVP.lightPos.y = -50.0f + sin(glm::radians(timer * 360.0f)) * 45.0f ;
-//		uboVP.lightPos.z = 25.0f + sin(glm::radians(timer * 360.0f )) * 5.0f ;
+		//uboVP.lightPos.x = sin(glm::radians(timer * 360.0f)) * 0.15f;
+		//uboVP.lightPos.z = cos(glm::radians(timer * 360.0f)) * 0.15f;
 	}
 
 	float CalcPerspectiveFov()
@@ -294,7 +293,8 @@ class VulkanExample : public VulkanExampleBase{
 			viewMatrix = glm::rotate(viewMatrix, glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 			break;
 		}
-		viewMatrix = glm::translate(viewMatrix,glm::vec3(uboVP.lightPos));
+		auto pos = glm::vec3 (uboVP.lightPos.x,-uboVP.lightPos.y,uboVP.lightPos.z);
+		viewMatrix = glm::translate(viewMatrix,pos);
 
 		glm::mat vp = depth_pass.perspective * viewMatrix;
 		VkViewport viewport = vks::initializers::viewport(depth_pass.size, depth_pass.size, 0.0f, 1.0f);
@@ -616,37 +616,43 @@ class VulkanExample : public VulkanExampleBase{
 			}
 		}
 	}
+	void OnUpdateLightPos()
+	{
+		updateUniformBuffer(true);
+		updateSpotLightUniformBuffer(true);
+		buildCommandBuffers();
+	}
 	virtual void OnUpdateUIOverlay(vks::UIOverlay *overlay) override
 	{
 		if(overlay->button("+x"))
 		{
 			uboVP.lightPos.x += 0.1f;
-			buildCommandBuffers();
+			OnUpdateLightPos();
 		}
 		if(overlay->button("-x"))
 		{
 			uboVP.lightPos.x -= 0.1f;
-			buildCommandBuffers();
+			OnUpdateLightPos();
 		}
 		if(overlay->button("+y"))
 		{
 			uboVP.lightPos.y += 0.1f;
-			buildCommandBuffers();
+			OnUpdateLightPos();
 		}
 		if(overlay->button("-y"))
 		{
 			uboVP.lightPos.y -= 0.1f;
-			buildCommandBuffers();
+			OnUpdateLightPos();
 		}
 		if(overlay->button("+z"))
 		{
 			uboVP.lightPos.z += 0.1f;
-			buildCommandBuffers();
+			OnUpdateLightPos();
 		}
 		if(overlay->button("-z"))
 		{
 			uboVP.lightPos.z -= 0.1f;
-			buildCommandBuffers();
+			OnUpdateLightPos();
 		}
 		if (overlay->header("Statistics")) {
 			char buf[100] = {0};
@@ -664,7 +670,7 @@ class VulkanExample : public VulkanExampleBase{
 		glm::mat4 model;
 		glm::mat4 lightSpace;
 		glm::vec4 viewPos;
-		glm::vec4 lightPos = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+		glm::vec4 lightPos = glm::vec4(0.0f, -2.0f, 0.0f, 1.0f);
 	} uboVP;
 	struct {
 		DepthUBO _1;

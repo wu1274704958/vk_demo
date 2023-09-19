@@ -37,7 +37,8 @@ float textureProj(vec3 shadowCoord, vec2 off)
     vec3 L = normalize(inLightPos - inFragPos);
 
     float bias = (1.0f - max(dot(N, L),0.0f)) * MaxBias;
-    if (dist <= sampleDist + bias)
+    sampleDist += bias;
+    if (dist <= sampleDist || abs(dist - sampleDist) <= 0.015f)
     {
         return 1.0f;
     }
@@ -95,11 +96,11 @@ void main()
     vec3 diffuse = inColor * max(0.0f,dot(L, N)) * 0.5f;
     vec3 specular = pow(max(dot(R, V), 0.0), 64.0) * vec3(0.2f) * inColor;
     vec3 c = vec3(ambient) + (diffuse + specular) * sp.y * shadow;
-    if(push.isCustomNormal > 0.0f)
-    {
-        float d = texture(shadowMap, normalize(inFragPos)).r / 20;
-        c = vec3(d,d,d);
-    }
+//    if(push.isCustomNormal > 0.0f)
+//    {
+//        float d = texture(shadowMap, normalize(inFragPos)).r / 20;
+//        c = vec3(d,d,d);
+//    }
     outColor = vec4( c,1.0f);
     //outColor = vec4(inLightSpacePos.xy / inLightSpacePos.w,0.0f,1.0f);
     //outColor = vec4(texture(shadowMap,(inLightSpacePos.xy / inLightSpacePos.w)).rrr,1.0f);
