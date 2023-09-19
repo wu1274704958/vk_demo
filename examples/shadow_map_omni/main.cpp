@@ -9,12 +9,16 @@
 #define RADIUS 25.0f
 #define ORTHO_SIZE 20.0f
 #define Light_Move_Speed 0.1f
-#define DEPTH_FORMAT VK_FORMAT_D32_SFLOAT
+#define DEPTH_FORMAT VK_FORMAT_R32_SFLOAT
 // Depth bias (and slope) are used to avoid shadowing artifacts
 // Constant depth bias factor (always applied)
 float depthBiasConstant = 1.25f;
 // Slope depth bias factor, applied depending on polygon's slope
 float depthBiasSlope = 1.75f;
+struct DepthUBO{
+	glm::mat4 model;
+	glm::vec4 lightPos;
+};
 class VulkanExample : public VulkanExampleBase{
  public:
 	struct SpotLightData {
@@ -42,9 +46,17 @@ class VulkanExample : public VulkanExampleBase{
 		//destroy depth resource
 		vkDestroySampler(device,depth_pass.sampler,nullptr);
 		vkDestroyImageView(device,depth_pass.attachment.view,nullptr);
+		for(auto& v : depth_pass.views)
+			vkDestroyImageView(device,v,nullptr);
 		vkDestroyImage(device,depth_pass.attachment.image,nullptr);
 		vkFreeMemory(device,depth_pass.attachment.memory,nullptr);
-		vkDestroyFramebuffer(device,depth_pass.frameBuffer,nullptr);
+
+		vkDestroyImageView(device,depth_pass.depthAttachment.view,nullptr);
+		vkDestroyImage(device,depth_pass.depthAttachment.image,nullptr);
+		vkFreeMemory(device,depth_pass.depthAttachment.memory,nullptr);
+
+		for(auto& frameBuffer : depth_pass.frameBuffers)
+			vkDestroyFramebuffer(device,frameBuffer,nullptr);
 		vkDestroyRenderPass(device,depth_pass.renderPass,nullptr);
 
 
@@ -54,6 +66,7 @@ class VulkanExample : public VulkanExampleBase{
 		//clear buffers
 		vkDestroyPipeline(device,pipelines.base, nullptr);
 		vkDestroyPipeline(device,pipelines.depth, nullptr);
+		vkDestroyPipeline(device, pipelines.cube, nullptr);
 		//clear pipeline layout
 		vkDestroyPipelineLayout(device,pipelineLayouts.base,nullptr);
 		vkDestroyPipelineLayout(device,pipelineLayouts.depth,nullptr);
@@ -96,15 +109,9 @@ class VulkanExample : public VulkanExampleBase{
 
 	void updateDepthUniformBuffer(bool changed)
 	{
-
-		glm::mat4 perspective = glm::perspective(CalcPerspectiveFov() ,1.0f, 20.f, 220.0f);
-		glm::mat4 view = glm::lookAt(glm::vec3(uboVP.lightPos), glm::vec3(0.0f,0.0f,0.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-
-		uboDepth.mat1 = perspective * view * sceneData.plane;
-		uboDepth.mat2 = perspective * view * sceneData.cube;
+		uboDepth._1 = { sceneData.plane , uboVP.lightPos } ;
+		uboDepth._2 = { sceneData.cube , uboVP.lightPos };
 		memcpy(uniformData.depth.mapped,&uboDepth,sizeof(uboDepth));
-
-		uboVP.lightSpace = perspective * view;
 	}
 	void updateUniformBuffer(bool viewChanged) {
 		updateLight();
@@ -179,7 +186,10 @@ class VulkanExample : public VulkanExampleBase{
 		pipelineLayoutInfo.pPushConstantRanges = pushConstantRanges.data();
 		VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayouts.base));
 
+		pushConstantRanges[0] = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4),0);
 		VkPipelineLayoutCreateInfo depthPipelineLayoutInfo = vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayouts.depth, 1);
+		depthPipelineLayoutInfo.pushConstantRangeCount = pushConstantRanges.size();
+		depthPipelineLayoutInfo.pPushConstantRanges = pushConstantRanges.data();
 		VK_CHECK_RESULT(vkCreatePipelineLayout(device, &depthPipelineLayoutInfo, nullptr, &pipelineLayouts.depth));
 	}
 
@@ -206,12 +216,12 @@ class VulkanExample : public VulkanExampleBase{
 		descriptorWrites[2].dstSet = descriptorSets.cube;
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
 		// mat1 plane mat2 cube
-		VkDescriptorBufferInfo depthDescriptorBufferInfo = { .buffer = uniformData.depth.buffer, .offset = 0, .range = sizeof(glm::mat4) };
+		VkDescriptorBufferInfo depthDescriptorBufferInfo = { .buffer = uniformData.depth.buffer, .offset = 0, .range = sizeof(DepthUBO) };
 		std::array<VkWriteDescriptorSet, 1> depthDescriptorWrites = {
 			vks::initializers::writeDescriptorSet(descriptorSets.planeForDepth, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &depthDescriptorBufferInfo)
 		};
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(depthDescriptorWrites.size()), depthDescriptorWrites.data(), 0, nullptr);
-		depthDescriptorBufferInfo = { .buffer = uniformData.depth.buffer, .offset = sizeof(glm::mat4), .range = sizeof(glm::mat4) };
+		depthDescriptorBufferInfo = { .buffer = uniformData.depth.buffer, .offset = sizeof(DepthUBO) + sizeof(uboDepth.space), .range = sizeof(DepthUBO) };
 		depthDescriptorWrites[0].dstSet = descriptorSets.cubeForDepth;
 		vkUpdateDescriptorSets(device,static_cast<uint32_t>(depthDescriptorWrites.size()), depthDescriptorWrites.data(), 0, nullptr);
 	}
@@ -251,14 +261,57 @@ class VulkanExample : public VulkanExampleBase{
 		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache,1,&pipelineCreateInfo,nullptr,&pipelines.cube));
 		//depth pipeline
 		shaderStages[0] = loadShader(getShadersPath() + "shadow_mapping_omni/shadowMap.vert.spv",VK_SHADER_STAGE_VERTEX_BIT);
+		shaderStages[1] = loadShader(getShadersPath() + "shadow_mapping_omni/shadowMap.frag.spv",VK_SHADER_STAGE_FRAGMENT_BIT);
 		pipelineCreateInfo.layout = pipelineLayouts.depth;
-		pipelineCreateInfo.stageCount = 1;
-		colorBlendCreateInfo.attachmentCount = 0;
-		dynamicStateCreateInfo.dynamicStateCount = dynamicStates.size();
-		rasterizationStateCreateInfo.depthBiasEnable = true;
 		pipelineCreateInfo.renderPass = depth_pass.renderPass;
 		rasterizationStateCreateInfo.cullMode = VK_CULL_MODE_NONE;
 		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache,1,&pipelineCreateInfo,nullptr,&pipelines.depth));
+	}
+
+	void drawDepthPass(int j, VkCommandBuffer& cmd)
+	{
+		glm::mat4 viewMatrix = glm::mat4(1.0f);
+		switch (j)
+		{
+		case 0: // POSITIVE_X
+			viewMatrix = glm::rotate(viewMatrix, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+			viewMatrix = glm::rotate(viewMatrix, glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			break;
+		case 1:	// NEGATIVE_X
+			viewMatrix = glm::rotate(viewMatrix, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+			viewMatrix = glm::rotate(viewMatrix, glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			break;
+		case 2:	// POSITIVE_Y
+			viewMatrix = glm::rotate(viewMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			break;
+		case 3:	// NEGATIVE_Y
+			viewMatrix = glm::rotate(viewMatrix, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			break;
+		case 4:	// POSITIVE_Z
+			viewMatrix = glm::rotate(viewMatrix, glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			break;
+		case 5:	// NEGATIVE_Z
+			viewMatrix = glm::rotate(viewMatrix, glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+			break;
+		}
+		viewMatrix = glm::translate(viewMatrix,glm::vec3(uboVP.lightPos));
+
+		glm::mat vp = depth_pass.perspective * viewMatrix;
+		VkViewport viewport = vks::initializers::viewport(depth_pass.size, depth_pass.size, 0.0f, 1.0f);
+		vkCmdSetViewport(cmd,0,1,&viewport);
+
+		VkRect2D scissor = vks::initializers::rect2D(depth_pass.size, depth_pass.size, 0, 0);
+		vkCmdSetScissor(cmd,0,1,&scissor);
+
+		vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelines.depth);
+
+		vkCmdPushConstants(cmd,pipelineLayouts.depth,VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(glm::mat4),&vp);
+
+//		vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayouts.depth,0,1,&descriptorSets.planeForDepth,0,nullptr);
+//		scene.plane.draw(cmd);
+
+		vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayouts.depth,0,1,&descriptorSets.cubeForDepth,0,nullptr);
+		scene.cube.draw(cmd);
 	}
 
 	void buildCommandBuffers() override {
@@ -274,46 +327,39 @@ class VulkanExample : public VulkanExampleBase{
 		renderPassBeginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 		renderPassBeginInfo.pClearValues = clearValues.data();
 
+		std::array<VkClearValue, 2> depthClearValue = {};
+		depthClearValue[0].color = {99999.0f, 0.0f, 0.0f, 1.0f};
+		depthClearValue[1].depthStencil = {1.0f, 0};
+
 		VkRenderPassBeginInfo depthPassBeginInfo = vks::initializers::renderPassBeginInfo();
 		depthPassBeginInfo.renderPass = depth_pass.renderPass;
 		depthPassBeginInfo.renderArea.extent.width = depth_pass.size;
 		depthPassBeginInfo.renderArea.extent.height = depth_pass.size;
-		depthPassBeginInfo.pClearValues = &clearValues[1];
-		depthPassBeginInfo.clearValueCount = 1;
-		depthPassBeginInfo.framebuffer = depth_pass.frameBuffer;
+
+		depthPassBeginInfo.pClearValues = depthClearValue.data();
+		depthPassBeginInfo.clearValueCount = depthClearValue.size();
+
 
 		VkDeviceSize offset = 0;
 		for(int i = 0;i < this->drawCmdBuffers.size();++i)
 		{
-			renderPassBeginInfo.framebuffer = frameBuffers[i];
 			VK_CHECK_RESULT(vkBeginCommandBuffer(this->drawCmdBuffers[i], &beginInfo));
 			//depth pass
-			vkCmdBeginRenderPass(this->drawCmdBuffers[i],&depthPassBeginInfo,VK_SUBPASS_CONTENTS_INLINE);
-
-			VkViewport viewport = vks::initializers::viewport(depth_pass.size, depth_pass.size, 0.0f, 1.0f);
-			vkCmdSetViewport(drawCmdBuffers[i],0,1,&viewport);
-
-			VkRect2D scissor = vks::initializers::rect2D(depth_pass.size, depth_pass.size, 0, 0);
-			vkCmdSetScissor(drawCmdBuffers[i],0,1,&scissor);
-
-			vkCmdSetDepthBias(drawCmdBuffers[i],depthBiasConstant,0.0f,depthBiasSlope);
-
-			vkCmdBindPipeline(drawCmdBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,pipelines.depth);
-
-			vkCmdBindDescriptorSets(drawCmdBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayouts.depth,0,1,&descriptorSets.planeForDepth,0,nullptr);
-			scene.plane.draw(drawCmdBuffers[i]);
-
-			vkCmdBindDescriptorSets(drawCmdBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,pipelineLayouts.depth,0,1,&descriptorSets.cubeForDepth,0,nullptr);
-			scene.cube.draw(drawCmdBuffers[i]);
-			vkCmdEndRenderPass(drawCmdBuffers[i]);
-
+			for(int j = 0;j < 6;++j)
+			{
+				depthPassBeginInfo.framebuffer = depth_pass.frameBuffers[j];
+				vkCmdBeginRenderPass(this->drawCmdBuffers[i],&depthPassBeginInfo,VK_SUBPASS_CONTENTS_INLINE);
+				drawDepthPass(j,drawCmdBuffers[i]);
+				vkCmdEndRenderPass(drawCmdBuffers[i]);
+			}
+			renderPassBeginInfo.framebuffer = frameBuffers[i];
 			//draw pass --------------------------------------------------------------------
 			vkCmdBeginRenderPass(this->drawCmdBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-			viewport = vks::initializers::viewport(width, height, 0.0f, 1.0f);
+			VkViewport viewport = vks::initializers::viewport(width, height, 0.0f, 1.0f);
 			vkCmdSetViewport(this->drawCmdBuffers[i], 0, 1, &viewport);
 
-			scissor = vks::initializers::rect2D(width, height, 0, 0);
+			VkRect2D scissor = vks::initializers::rect2D(width, height, 0, 0);
 			vkCmdSetScissor(this->drawCmdBuffers[i], 0, 1, &scissor);
 
 			float isCustomNormal = 1.0f;
@@ -353,49 +399,41 @@ class VulkanExample : public VulkanExampleBase{
 	void prepareDepthRenderPass()
 	{
 		//create depth Render pass
-		auto attachmentDesctiptor = VkAttachmentDescription{};
-		attachmentDesctiptor.format = DEPTH_FORMAT;
-		attachmentDesctiptor.samples = VK_SAMPLE_COUNT_1_BIT;
-		attachmentDesctiptor.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		attachmentDesctiptor.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		attachmentDesctiptor.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		attachmentDesctiptor.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		attachmentDesctiptor.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		attachmentDesctiptor.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+		std::array<VkAttachmentDescription,2> attachments = {};
+		attachments[0].format = DEPTH_FORMAT;
+		attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+		attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		attachments[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		attachments[1].format = VK_FORMAT_D24_UNORM_S8_UINT;
+		attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+		attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 		//sub pass description
-		VkAttachmentReference depth_attachment_ref = { 0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+		std::array<VkAttachmentReference,2> attachmentRefs = {};
+		attachmentRefs[0] = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+		attachmentRefs[1] = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
 		VkSubpassDescription pass{};
 		pass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-		pass.colorAttachmentCount = 0;
-		pass.pColorAttachments = nullptr;
-		pass.pDepthStencilAttachment = &depth_attachment_ref;
-
-		VkSubpassDependency depth_pass_dependency[2] = { {},{}};
-		depth_pass_dependency[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-		depth_pass_dependency[0].dstSubpass = 0;
-		depth_pass_dependency[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-		depth_pass_dependency[0].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-		depth_pass_dependency[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		depth_pass_dependency[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-		depth_pass_dependency[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-		depth_pass_dependency[1].srcSubpass = 0;
-		depth_pass_dependency[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-		depth_pass_dependency[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-		depth_pass_dependency[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-		depth_pass_dependency[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-		depth_pass_dependency[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		depth_pass_dependency[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
+		pass.colorAttachmentCount = 1;
+		pass.pColorAttachments = &attachmentRefs[0];
+		pass.pDepthStencilAttachment = &attachmentRefs[1];
 
 		auto renderPassInfo = vks::initializers::renderPassCreateInfo();
-		renderPassInfo.attachmentCount = 1;
-		renderPassInfo.pAttachments = &attachmentDesctiptor;
+		renderPassInfo.attachmentCount = attachments.size();
+		renderPassInfo.pAttachments = attachments.data();
 		renderPassInfo.subpassCount = 1;
 		renderPassInfo.pSubpasses = &pass;
-		renderPassInfo.dependencyCount = sizeof(depth_pass_dependency) / sizeof(depth_pass_dependency[0]);
-		renderPassInfo.pDependencies = depth_pass_dependency;
 
 		VK_CHECK_RESULT(vkCreateRenderPass(device, &renderPassInfo, nullptr, &depth_pass.renderPass));
 	}
@@ -403,7 +441,7 @@ class VulkanExample : public VulkanExampleBase{
 	{
 		//create Image
 		auto imageInfo = vks::initializers::imageCreateInfo();
-		imageInfo.arrayLayers = 1;
+		imageInfo.arrayLayers = 6;
 		imageInfo.extent.width = depth_pass.size;
 		imageInfo.extent.height = depth_pass.size;
 		imageInfo.extent.depth = 1;
@@ -412,8 +450,9 @@ class VulkanExample : public VulkanExampleBase{
 		imageInfo.mipLevels = 1;
 		imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 		imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-		imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+		imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 		imageInfo.imageType = VK_IMAGE_TYPE_2D;
+		imageInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 		VK_CHECK_RESULT(vkCreateImage(device, &imageInfo, nullptr, &depth_pass.attachment.image));
 		//allocation Image Memory
 
@@ -425,21 +464,44 @@ class VulkanExample : public VulkanExampleBase{
 		VK_CHECK_RESULT(vkAllocateMemory(device, &memInfo, nullptr, &depth_pass.attachment.memory));
 		VK_CHECK_RESULT(vkBindImageMemory(device, depth_pass.attachment.image, depth_pass.attachment.memory, 0));
 
+		VkCommandBuffer layoutCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
+
+		VkImageSubresourceRange subresourceLayout = { };
+		subresourceLayout.layerCount=6;
+		subresourceLayout.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+		subresourceLayout.levelCount=1;
+		vks::tools::setImageLayout(layoutCmd,
+			depth_pass.attachment.image,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			subresourceLayout);
+
+		vulkanDevice->flushCommandBuffer(layoutCmd,queue);
+
 		//create view
 		VkImageViewCreateInfo viewInfo = vks::initializers::imageViewCreateInfo();
-		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
 		viewInfo.format = imageInfo.format;
 		viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
 		viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
 		viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
 		viewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
-		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		viewInfo.subresourceRange.baseMipLevel = 0;
 		viewInfo.subresourceRange.levelCount = 1;
 		viewInfo.subresourceRange.baseArrayLayer = 0;
-		viewInfo.subresourceRange.layerCount = 1;
+		viewInfo.subresourceRange.layerCount = 6;
 		viewInfo.image = depth_pass.attachment.image;
 		VK_CHECK_RESULT(vkCreateImageView(device, &viewInfo, nullptr, &depth_pass.attachment.view));
+
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.subresourceRange.layerCount = 1;
+
+		for(int i = 0;i < depth_pass.views.size();++i)
+		{
+			viewInfo.subresourceRange.baseArrayLayer = i;
+			VK_CHECK_RESULT(vkCreateImageView(device, &viewInfo, nullptr, &depth_pass.views[i]));
+		}
 		//create depth sampler
 		auto filterMode = vks::tools::formatIsFilterable(physicalDevice,imageInfo.format,imageInfo.tiling) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
 		VkSamplerCreateInfo samplerInfo = vks::initializers::samplerCreateInfo();
@@ -461,19 +523,59 @@ class VulkanExample : public VulkanExampleBase{
 
 		depth_pass.descriptor.sampler = depth_pass.sampler;
 		depth_pass.descriptor.imageView = depth_pass.attachment.view;
-		depth_pass.descriptor.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+		depth_pass.descriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		auto depthImageInfo = vks::initializers::imageCreateInfo();
+		depthImageInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
+		depthImageInfo.extent.width = depth_pass.size;
+		depthImageInfo.extent.height = depth_pass.size;
+		depthImageInfo.extent.depth = 1;
+		depthImageInfo.mipLevels = 1;
+		depthImageInfo.arrayLayers = 1;
+		depthImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+		depthImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+		depthImageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		depthImageInfo.flags = 0;
+		depthImageInfo.imageType = VK_IMAGE_TYPE_2D;
+		VK_CHECK_RESULT(vkCreateImage(device, &depthImageInfo, nullptr, &depth_pass.depthAttachment.image));
+
+		vkGetImageMemoryRequirements(device, depth_pass.depthAttachment.image, &memoryRequirements);
+		memInfo.allocationSize = memoryRequirements.size;
+		memInfo.memoryTypeIndex = vulkanDevice->getMemoryType(memoryRequirements.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		VK_CHECK_RESULT(vkAllocateMemory(device, &memInfo, nullptr, &depth_pass.depthAttachment.memory));
+		VK_CHECK_RESULT(vkBindImageMemory(device, depth_pass.depthAttachment.image, depth_pass.depthAttachment.memory, 0));
+
+		viewInfo = vks::initializers::imageViewCreateInfo();
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.format = depthImageInfo.format;
+		viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
+		viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
+		viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
+		viewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
+		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		viewInfo.subresourceRange.baseMipLevel = 0;
+		viewInfo.subresourceRange.levelCount = 1;
+		viewInfo.subresourceRange.baseArrayLayer = 0;
+		viewInfo.subresourceRange.layerCount = 1;
+		viewInfo.image = depth_pass.depthAttachment.image;
+		VK_CHECK_RESULT(vkCreateImageView(device, &viewInfo, nullptr, &depth_pass.depthAttachment.view));
 
 		prepareDepthRenderPass();
+
+		std::array<VkImageView ,2> views = {depth_pass.attachment.view,depth_pass.depthAttachment.view};
 		//create frameBuffer
 		VkFramebufferCreateInfo framebufferInfo = vks::initializers::framebufferCreateInfo();
 		framebufferInfo.renderPass = depth_pass.renderPass;
-		framebufferInfo.attachmentCount = 1;
-		framebufferInfo.pAttachments = &depth_pass.attachment.view;
+		framebufferInfo.attachmentCount = views.size();
+		framebufferInfo.pAttachments = views.data();
 		framebufferInfo.width = depth_pass.size;
 		framebufferInfo.height = depth_pass.size;
 		framebufferInfo.layers = 1;
-		VK_CHECK_RESULT(vkCreateFramebuffer(device, &framebufferInfo, nullptr, &depth_pass.frameBuffer));
-
+		for(int i = 0;i < depth_pass.views.size();++i)
+		{
+			views[0] = depth_pass.views[i];
+			VK_CHECK_RESULT(vkCreateFramebuffer(device, &framebufferInfo, nullptr, &depth_pass.frameBuffers[i]));
+		}
 
 	}
 
@@ -519,32 +621,32 @@ class VulkanExample : public VulkanExampleBase{
 		if(overlay->button("+x"))
 		{
 			uboVP.lightPos.x += 0.1f;
-			updateDepthUniformBuffer(true);
+			buildCommandBuffers();
 		}
 		if(overlay->button("-x"))
 		{
 			uboVP.lightPos.x -= 0.1f;
-			updateDepthUniformBuffer(true);
+			buildCommandBuffers();
 		}
 		if(overlay->button("+y"))
 		{
 			uboVP.lightPos.y += 0.1f;
-			updateDepthUniformBuffer(true);
+			buildCommandBuffers();
 		}
 		if(overlay->button("-y"))
 		{
 			uboVP.lightPos.y -= 0.1f;
-			updateDepthUniformBuffer(true);
+			buildCommandBuffers();
 		}
 		if(overlay->button("+z"))
 		{
 			uboVP.lightPos.z += 0.1f;
-			updateDepthUniformBuffer(true);
+			buildCommandBuffers();
 		}
 		if(overlay->button("-z"))
 		{
 			uboVP.lightPos.z -= 0.1f;
-			updateDepthUniformBuffer(true);
+			buildCommandBuffers();
 		}
 		if (overlay->header("Statistics")) {
 			char buf[100] = {0};
@@ -562,11 +664,12 @@ class VulkanExample : public VulkanExampleBase{
 		glm::mat4 model;
 		glm::mat4 lightSpace;
 		glm::vec4 viewPos;
-		glm::vec4 lightPos = glm::vec4(0.0f, -1.0f, 0.0f, 1.0f);
+		glm::vec4 lightPos = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
 	} uboVP;
 	struct {
-		glm::mat4 mat1;
-		glm::mat4 mat2;
+		DepthUBO _1;
+		char space[48];
+		DepthUBO _2;
 	} uboDepth;
 	struct {
 		glm::mat4 plane = glm::mat4(1.0f);
@@ -602,11 +705,14 @@ class VulkanExample : public VulkanExampleBase{
 	};
 	struct {
 		int size = 2048;
-		VkFramebuffer frameBuffer;
+		std::array<VkFramebuffer,6> frameBuffers;
 		FrameBufferAttachment attachment;
+		FrameBufferAttachment depthAttachment;
 		VkRenderPass renderPass;
 		VkSampler sampler;
 		VkDescriptorImageInfo descriptor;
+		std::array<VkImageView,6> views;
+		glm::mat4 perspective = glm::perspective(glm::pi<float>() * 0.5f,1.0f, 0.001f, 220.0f);
 	} depth_pass;
 	struct {
 		VkDescriptorSetLayout base;

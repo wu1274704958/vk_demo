@@ -419,8 +419,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)									\
 	vulkanExample->initVulkan();																	\
 	vulkanExample->setupWindow(hInstance, WndProc);													\
 	vulkanExample->prepare();																		\
-	vulkanExample->renderLoop();																	\
-	delete(vulkanExample);																			\
+	vulkanExample->renderLoop();                  \
+	delete(vulkanExample);                        \
+	for(;;){}\
 	return 0;																						\
 }
 #elif defined(VK_USE_PLATFORM_ANDROID_KHR)

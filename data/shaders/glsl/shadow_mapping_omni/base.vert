@@ -16,18 +16,12 @@ layout (set = 0,binding = 0) uniform UBO
 } ubo;
 
 layout (location = 0) out vec3 outNormal;
-layout (location = 2) out vec3 outViewPos;
-layout (location = 3) out vec3 outLightPos;
-layout (location = 4) out vec2 outUV;
-layout (location = 5) out vec3 outFragPos;
-layout (location = 6) out vec4 outLightSpacePos;
-layout (location = 7) out vec3 outColor;
+layout (location = 1) out vec3 outViewPos;
+layout (location = 2) out vec3 outLightPos;
+layout (location = 3) out vec2 outUV;
+layout (location = 4) out vec3 outFragPos;
+layout (location = 5) out vec3 outColor;
 
-const mat4 biasMat = mat4(
-0.5, 0.0, 0.0, 0.0,
-0.0, 0.5, 0.0, 0.0,
-0.0, 0.0, 1.0, 0.0,
-0.5, 0.5, 0.0, 1.0 );
 
 void main()
 {
@@ -40,6 +34,4 @@ void main()
     outUV = inUV;
     outFragPos = (ubo.model * vec4(inPos, 1.0)).xyz;
     outColor = inColor;
-
-    outLightSpacePos = biasMat * ubo.lightSpace * ubo.model * vec4(inPos, 1.0);
 }
