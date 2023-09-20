@@ -94,8 +94,9 @@ class VulkanExample : public VulkanExampleBase{
 	void updateLight()
 	{
 		// Animate the light source
-		//uboVP.lightPos.x = sin(glm::radians(timer * 360.0f)) * 0.15f;
-		//uboVP.lightPos.z = cos(glm::radians(timer * 360.0f)) * 0.15f;
+		uboVP.lightPos.x = glm::sin(time * 6.0f) * 1.f;
+		uboVP.lightPos.z = glm::cos(time * 6.0f) * 1.f;
+		uboVP.lightPos.y = -3 + glm::sin(time * 3.0f) * 0.5f;
 	}
 
 	float CalcPerspectiveFov()
@@ -293,7 +294,7 @@ class VulkanExample : public VulkanExampleBase{
 			viewMatrix = glm::rotate(viewMatrix, glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 			break;
 		}
-		auto pos = glm::vec3 (uboVP.lightPos.x,-uboVP.lightPos.y,uboVP.lightPos.z);
+		auto pos = glm::vec3 (-uboVP.lightPos.x,-uboVP.lightPos.y,-uboVP.lightPos.z);
 		viewMatrix = glm::translate(viewMatrix,pos);
 
 		glm::mat vp = depth_pass.perspective * viewMatrix;
@@ -606,14 +607,8 @@ class VulkanExample : public VulkanExampleBase{
 		if(prepared)
 		{
 			renderFrame();
-			if(camera.updated)
-			{
-				updateUniformBuffer(true);
-			}
-			if(spotLight.updated)
-			{
-				updateSpotLightUniformBuffer(true);
-			}
+			OnUpdateLightPos();
+			time += timerSpeed * frameTimer;
 		}
 	}
 	void OnUpdateLightPos()
@@ -663,14 +658,14 @@ class VulkanExample : public VulkanExampleBase{
 
 
  private:
-
+	float time = 0.0f;
 	struct {
 		glm::mat4 projection;
 		glm::mat4 view;
 		glm::mat4 model;
 		glm::mat4 lightSpace;
 		glm::vec4 viewPos;
-		glm::vec4 lightPos = glm::vec4(0.0f, -2.0f, 0.0f, 1.0f);
+		glm::vec4 lightPos = glm::vec4(0.1f, -3.7f, 0.0f, 1.0f);
 	} uboVP;
 	struct {
 		DepthUBO _1;
@@ -718,7 +713,7 @@ class VulkanExample : public VulkanExampleBase{
 		VkSampler sampler;
 		VkDescriptorImageInfo descriptor;
 		std::array<VkImageView,6> views;
-		glm::mat4 perspective = glm::perspective(glm::pi<float>() * 0.5f,1.0f, 0.001f, 220.0f);
+		glm::mat4 perspective = glm::perspective(glm::pi<float>() * 0.5f,1.0f, 0.1f, 220.0f);
 	} depth_pass;
 	struct {
 		VkDescriptorSetLayout base;
