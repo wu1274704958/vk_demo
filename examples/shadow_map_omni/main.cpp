@@ -94,9 +94,9 @@ class VulkanExample : public VulkanExampleBase{
 	void updateLight()
 	{
 		// Animate the light source
-		uboVP.lightPos.x = glm::sin(time * 6.0f) * 1.f;
-		uboVP.lightPos.z = glm::cos(time * 6.0f) * 1.f;
-		uboVP.lightPos.y = -3 + glm::sin(time * 3.0f) * 0.5f;
+		uboVP.lightPos.x = glm::sin(time * 4.0f) * 0.3f;
+		uboVP.lightPos.z = glm::cos(time * 3.0f) * 0.4f;
+		uboVP.lightPos.y = -2 + glm::sin(time * 3.0f) * 0.5f;
 	}
 
 	float CalcPerspectiveFov()
@@ -262,9 +262,9 @@ class VulkanExample : public VulkanExampleBase{
 		//depth pipeline
 		shaderStages[0] = loadShader(getShadersPath() + "shadow_mapping_omni/shadowMap.vert.spv",VK_SHADER_STAGE_VERTEX_BIT);
 		shaderStages[1] = loadShader(getShadersPath() + "shadow_mapping_omni/shadowMap.frag.spv",VK_SHADER_STAGE_FRAGMENT_BIT);
+		rasterizationStateCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
 		pipelineCreateInfo.layout = pipelineLayouts.depth;
 		pipelineCreateInfo.renderPass = depth_pass.renderPass;
-		rasterizationStateCreateInfo.cullMode = VK_CULL_MODE_NONE;
 		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache,1,&pipelineCreateInfo,nullptr,&pipelines.depth));
 	}
 

@@ -21,46 +21,50 @@ layout (push_constant) uniform PushConstants
     float isCustomNormal;
 } push;
 
-const float MaxBias = 0.001f;
+const float MaxBias = 0.2f;
 
 #define ambient 0.3
 
-float textureProj(vec3 shadowCoord, vec2 off)
+float textureProj(vec3 off)
 {
-    float sampleDist = texture( shadowMap, shadowCoord ).r;
+    vec3 shadowCoord = (inFragPos + off) - inLightPos;
+    float sampleDist = texture( shadowMap, shadowCoord).r;
     float dist = length(shadowCoord);
-    vec3 N = normalize(inNormal);
-    if(push.isCustomNormal > 0.0f)
-    {
-        N = normalize(-inFragPos);
-    }
-    vec3 L = normalize(inLightPos - inFragPos);
+//    vec3 N = normalize(inNormal);
+//    if(push.isCustomNormal > 0.0f)
+//    {
+//        N = normalize(-(inFragPos + off));
+//    }
+//    vec3 L = normalize(inLightPos - (inFragPos + off));
 
-    float bias = (1.0f - max(dot(N, L),0.0f)) * MaxBias;
+    float bias = /*(1.0f - max(dot(N, L),0.0f)) */ MaxBias;
     sampleDist += bias;
-    if (dist <= sampleDist || abs(dist - sampleDist) <= 0.015f)
+    if (dist <= sampleDist )
     {
         return 1.0f;
     }
     return 0.0f;
 }
 
-float filterPCF(vec4 shadowCoord)
+const vec3 sampleOffsetDirections[20] = vec3[]
+(
+vec3(1, 1, 1), vec3(1, -1, 1), vec3(-1, -1, 1), vec3(-1, 1, 1),
+vec3(1, 1, -1), vec3(1, -1, -1), vec3(-1, -1, -1), vec3(-1, 1, -1),
+vec3(1, 1, 0), vec3(1, -1, 0), vec3(-1, -1, 0), vec3(-1, 1, 0),
+vec3(1, 0, 1), vec3(-1, 0, 1), vec3(1, 0, -1), vec3(-1, 0, -1),
+vec3(0, 1, 1), vec3(0, -1, 1), vec3(0, -1, -1), vec3(0, 1, -1)
+);
+
+float filterPCF()
 {
-//    vec2 size = vec2(100,100);//textureSize(shadowMap, 0);
-//    vec2 delat = 1.0f / size;
-//    float shadowFactor = 0.0f;
-//    int range = 1;
-//    for(int y = -range; y <= range; y++)
-//    {
-//        for(int x = -range; x <= range; x++)
-//        {
-//            shadowFactor += textureProj(shadowCoord, vec2(x * delat.x, y * delat.y));
-//        }
-//    }
-//    float a = (1.0f + range * 2.0f);
-//    return shadowFactor / (a * a);
-    return 0.0f;
+    float shadow = 0.0;
+    int samples = 20;
+    float diskRadius = 0.03;
+    for(int i = 0; i < samples; ++i)
+    {
+        shadow += textureProj(sampleOffsetDirections[i] * diskRadius);
+    }
+    return shadow /= float(samples);
 }
 
 vec2 calcSpotLight()
@@ -87,20 +91,19 @@ void main()
     vec3 V = normalize(inViewPos - inFragPos);
     vec3 R = normalize(reflect(-L, N));
 
-    vec3 LL = inFragPos - inLightPos;
 
-    float shadow = textureProj(LL,vec2(0,0)).r;//filterPCF(inLightSpacePos / inLightSpacePos.w);
-
+    //float shadow = textureProj(vec3(0));
+    float shadow = filterPCF();
     vec2 sp = calcSpotLight();
 
     vec3 diffuse = inColor * max(0.0f,dot(L, N)) * 0.5f;
     vec3 specular = pow(max(dot(R, V), 0.0), 64.0) * vec3(0.2f) * inColor;
     vec3 c = vec3(ambient) + (diffuse + specular) * sp.y * shadow;
-    //if(push.isCustomNormal > 0.0f)
-    //{
-    //    float d = texture(shadowMap, normalize(inFragPos)).r / 20;
-    //    c = vec3(d,d,d);
-    //}
+//    if(push.isCustomNormal > 0.0f)
+//    {
+//        float d = texture(shadowMap, normalize(inFragPos)).r / 20;
+//        c = vec3(d,d,d);
+//    }
     outColor = vec4( c,1.0f);
     //outColor = vec4(inLightSpacePos.xy / inLightSpacePos.w,0.0f,1.0f);
     //outColor = vec4(texture(shadowMap,(inLightSpacePos.xy / inLightSpacePos.w)).rrr,1.0f);
