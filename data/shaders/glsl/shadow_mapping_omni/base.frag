@@ -57,9 +57,11 @@ vec3(0, 1, 1), vec3(0, -1, 1), vec3(0, -1, -1), vec3(0, 1, -1)
 
 float filterPCF()
 {
+    float dist = length(inFragPos - inLightPos);
+
     float shadow = 0.0;
     int samples = 20;
-    float diskRadius = 0.03;
+    float diskRadius =  (dist / 10.0f) * 0.03;
     for(int i = 0; i < samples; ++i)
     {
         shadow += textureProj(sampleOffsetDirections[i] * diskRadius);
