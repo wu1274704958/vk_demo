@@ -30,14 +30,14 @@ float textureProj(vec3 off)
     vec3 shadowCoord = (inFragPos + off) - inLightPos;
     float sampleDist = texture( shadowMap, shadowCoord).r;
     float dist = length(shadowCoord);
-//    vec3 N = normalize(inNormal);
-//    if(push.isCustomNormal > 0.0f)
-//    {
-//        N = normalize(-(inFragPos + off));
-//    }
-//    vec3 L = normalize(inLightPos - (inFragPos + off));
+    vec3 N = normalize(inNormal);
+    if(push.isCustomNormal > 0.0f)
+    {
+        N = normalize(-(inFragPos + off));
+    }
+    vec3 L = normalize(inLightPos - (inFragPos + off));
 
-    float bias = /*(1.0f - max(dot(N, L),0.0f)) */ MaxBias;
+    float bias = (dist / 10.0f) * MaxBias;
     sampleDist += bias;
     if (dist <= sampleDist )
     {
